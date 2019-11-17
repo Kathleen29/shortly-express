@@ -15,19 +15,20 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));
 
+app.use(require('./middleware/cookieParser'));
+app.use(Auth.createSession);
 
-
-app.get('/',
+app.get('/', Auth.verifySession,
 (req, res) => {
   res.render('index');
 });
 
-app.get('/create',
+app.get('/create', Auth.verifySession,
 (req, res) => {
   res.render('index');
 });
 
-app.get('/links',
+app.get('/links', Auth.verifySession,
 (req, res, next) => {
   models.Links.getAll()
     .then(links => {
@@ -38,7 +39,7 @@ app.get('/links',
     });
 });
 
-app.post('/links',
+app.post('/links', Auth.verifySession,
 (req, res, next) => {
   var url = req.body.url;
   if (!models.Links.isValidUrl(url)) {
@@ -77,6 +78,25 @@ app.post('/links',
 /************************************************************/
 // Write your authentication routes here
 /************************************************************/
+app.get('/login',(req,res)=>{
+  res.render('login');
+});
+
+app.get('/signup', (req, res) => {
+  res.render('signup');
+})
+
+app.get('/logout',(req,res,next)=>{
+  return models.Sessions.delete({hash:req.cookies.shortlyid})
+  .then(()=>{
+    res.clearCookie('shortlyid')
+    res.redirect('/login');
+  })
+  .catch(() => {
+    res.status(404);
+  })
+});
+
 app.post('/signup',
 (req, res, next) => {
   var username = req.body.username;
@@ -86,7 +106,7 @@ app.post('/signup',
       if (name) {
         console.log("================== The name is taken ==============");
         throw name;
-      }else{
+      } else {
        return models.Users.create({
           username: username,
           password: password
@@ -94,6 +114,11 @@ app.post('/signup',
       }
     })
     .then(results => {
+      // update session for user
+      return models.Sessions.update({hash:req.session.hash},{userId:results.insertId})
+      // return models.Sessions.update({ hash: req.session.hash }, { userId: results.insertId });
+    })
+    .then(() => {
       res.redirect('/');
     })
     .catch(name => {
@@ -101,16 +126,37 @@ app.post('/signup',
     });
 
 })
-/*
-    user.save().then(function(){
-        return res.json({user: user.toAuthJSON()});
-    }).catch(next);
-*/
+
 
 app.post('/login',
 (req, res, next) => {
-
+  var username = req.body.username;
+  var password = req.body.password;
+  models.Users.get({username})
+  .then(name => {
+    if(!name){
+      res.redirect('/login');
+    } else {
+      if(!models.Users.compare(password, name.password, name.salt)) {
+        res.redirect('/login');
+      } else {
+        models.Sessions.update({hash:req.session.hash},{userId:name.id})
+        res.redirect('/');
+      }
+    }
+  })
 })
+
+  // .then(results => {
+  //   res.redirect('/');
+  // })
+  // .catch(results => {
+  //   res.redirect('/login');
+  // })
+
+
+
+
 
 
 /************************************************************/
